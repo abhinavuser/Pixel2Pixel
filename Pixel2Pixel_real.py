@@ -32,15 +32,22 @@ parser.add_argument('--ps', default=7, type=int, help='Patch size')
 parser.add_argument('--nn', default=100, type=int, help='Number of nearest neighbors to search')
 parser.add_argument('--mm', default=20, type=int, help='Number of pixel banks to use for training')
 parser.add_argument('--loss', default='L2', type=str, help='Loss function type')
+parser.add_argument('--device', default='auto', type=str, help="Device to run on: 'auto'|'cpu'|'cuda:0' etc.")
+parser.add_argument('--max_epoch', default=3000, type=int, help='Maximum number of training epochs per image')
+parser.add_argument('--limit', default=None, type=int, help='Limit number of images to process (for quick tests)')
 args = parser.parse_args()
 
 torch.manual_seed(123)
-torch.cuda.manual_seed(123)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(123)
 np.random.seed(123)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-device = "cuda:0"
+if args.device != 'auto':
+    device = torch.device(args.device)
+else:
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 WINDOW_SIZE = args.ws
 PATCH_SIZE = args.ps
@@ -56,6 +63,8 @@ def construct_pixel_bank():
 
     noisy_folder = os.path.join(args.data_path, args.dataset, args.Noisy)
     image_files = sorted(os.listdir(noisy_folder))
+    if args.limit is not None:
+        image_files = image_files[:args.limit]
 
     pad_sz = WINDOW_SIZE // 2 + PATCH_SIZE // 2
     center_offset = WINDOW_SIZE // 2
@@ -66,9 +75,9 @@ def construct_pixel_bank():
         start_time = time.time()
 
         # Load the already noisy image
-        img = Image.open(image_path)
+        img = Image.open(image_path).convert('RGB')
         img = transform(img).unsqueeze(0)  # Shape: [1, C, H, W]
-        img = img.cuda()  # No extra dimension is added
+        img = img.to(device)  # No extra dimension is added
 
         # Pad the image (F.pad requires a 4D tensor)
         img_pad = F.pad(img, (pad_sz, pad_sz, pad_sz, pad_sz), mode='reflect')
@@ -232,7 +241,7 @@ def denoise_images():
 
     os.makedirs(args.out_image, exist_ok=True)
 
-    max_epoch = 3000
+    max_epoch = args.max_epoch
     lr = 0.001
     avg_PSNR = 0
     avg_SSIM = 0

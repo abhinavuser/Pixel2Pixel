@@ -32,17 +32,24 @@ parser.add_argument('--mm', default=8, type=int, help='Number of pixels in pixel
 parser.add_argument('--nl', default=0.2, type=float, help='Noise level, for saltpepper and impulse noise, enter half the noise level.')
 parser.add_argument('--nt', default='bernoulli', type=str, help='Noise type: gauss, poiss, saltpepper, bernoulli, impulse')
 parser.add_argument('--loss', default='L1', type=str, help='Loss function type')
+parser.add_argument('--device', default='auto', type=str, help="Device to run on: 'auto'|'cpu'|'cuda:0' etc.")
+parser.add_argument('--max_epoch', default=3000, type=int, help='Maximum number of training epochs per image')
+parser.add_argument('--limit', default=None, type=int, help='Limit number of images to process (for quick tests)')
 args = parser.parse_args()
 
 
 # -------------------------------
 torch.manual_seed(123)
-torch.cuda.manual_seed(123)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(123)
 np.random.seed(123)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-device = "cuda:0"
+if args.device != 'auto':
+    device = torch.device(args.device)
+else:
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 WINDOW_SIZE = args.ws
 PATCH_SIZE = args.ps
@@ -91,6 +98,8 @@ def construct_pixel_bank():
 
     image_folder = os.path.join(args.data_path, args.dataset)
     image_files = sorted(os.listdir(image_folder))
+    if args.limit is not None:
+        image_files = image_files[:args.limit]
 
     pad_sz = WINDOW_SIZE // 2 + PATCH_SIZE // 2
     center_offset = WINDOW_SIZE // 2
@@ -101,10 +110,10 @@ def construct_pixel_bank():
         start_time = time.time()
 
         # Load image and add noise
-        img = Image.open(image_path)
+        img = Image.open(image_path).convert('RGB')
         img = transform(img).unsqueeze(0)  # Shape: [1, C, H, W]
         img = add_noise(img, noise_level).squeeze(0)
-        img = img.cuda()[None, ...]  # Shape: [1, C, H, W]
+        img = img.to(device)[None, ...]  # Shape: [1, C, H, W]
 
         # Pad image and extract patches
         img_pad = F.pad(img, (pad_sz, pad_sz, pad_sz, pad_sz), mode='reflect')
@@ -276,7 +285,7 @@ def denoise_images():
 
     os.makedirs(args.out_image, exist_ok=True)
 
-    max_epoch = 3000
+    max_epoch = args.max_epoch
     lr = 0.001
     avg_PSNR = 0
     avg_SSIM = 0
@@ -330,7 +339,22 @@ def denoise_images():
         noisy_img_pil.save(noisy_img_save_path)
 
         out_img_loaded = io.imread(out_img_save_path)
-        SSIM, _ = compare_ssim(clean_img_np, out_img_loaded, full=True, multichannel=True)
+        # skimage newer versions use channel_axis instead of multichannel
+        h, w = out_img_loaded.shape[0], out_img_loaded.shape[1]
+        # choose a safe odd win_size <= min(h,w)
+        max_win = min(h, w)
+        if max_win < 3:
+            win_size = 3
+        else:
+            # typical default is 7; ensure odd and <= max_win
+            desired = 7
+            if desired > max_win:
+                win_size = max_win if max_win % 2 == 1 else max_win - 1
+                if win_size < 3:
+                    win_size = 3
+            else:
+                win_size = desired
+        SSIM, _ = compare_ssim(clean_img_np, out_img_loaded, full=True, channel_axis=2, win_size=win_size)
         print(f"Image: {image_file} | PSNR: {PSNR:.2f} dB | SSIM: {SSIM:.4f}")
         avg_PSNR += PSNR
         avg_SSIM += SSIM
