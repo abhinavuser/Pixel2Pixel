@@ -151,23 +151,26 @@ def construct_pixel_bank():
 
         # Pad image and extract patches
         img_pad = F.pad(img, (pad_sz, pad_sz, pad_sz, pad_sz), mode='reflect')
-        img_unfold = F.unfold(img_pad, kernel_size=PATCH_SIZE, padding=0, stride=1)
-        H_new = img.shape[-2] + WINDOW_SIZE
-        W_new = img.shape[-1] + WINDOW_SIZE
+        # unfold by patch size (PS)
+        img_unfold = F.unfold(img_pad, kernel_size=PS, padding=0, stride=1)
+        H_p = img_pad.shape[-2]
+        W_p = img_pad.shape[-1]
+        H_new = H_p - PS + 1
+        W_new = W_p - PS + 1
         img_unfold = einops.rearrange(img_unfold, 'b c (h w) -> b c h w', h=H_new, w=W_new)
 
         num_blk_w = img.shape[-1] // blk_sz
         num_blk_h = img.shape[-2] // blk_sz
-        is_window_size_even = (WINDOW_SIZE % 2 == 0)
+        is_window_size_even = (WS % 2 == 0)
         topk_list = []
 
         # Iterate over blocks in the image
         for blk_i in range(num_blk_w):
             for blk_j in range(num_blk_h):
                 start_h = blk_j * blk_sz
-                end_h = (blk_j + 1) * blk_sz + WINDOW_SIZE
+                end_h = (blk_j + 1) * blk_sz + WS
                 start_w = blk_i * blk_sz
-                end_w = (blk_i + 1) * blk_sz + WINDOW_SIZE
+                end_w = (blk_i + 1) * blk_sz + WS
 
                 sub_img_uf = img_unfold[..., start_h:end_h, start_w:end_w]
                 sub_img_shape = sub_img_uf.shape
@@ -177,18 +180,18 @@ def construct_pixel_bank():
                 else:
                     sub_img_uf_inp = sub_img_uf
 
-                patch_windows = F.unfold(sub_img_uf_inp, kernel_size=WINDOW_SIZE, padding=0, stride=1)
+                patch_windows = F.unfold(sub_img_uf_inp, kernel_size=WS, padding=0, stride=1)
                 patch_windows = einops.rearrange(
                     patch_windows,
                     'b (c k1 k2 k3 k4) (h w) -> b (c k1 k2) (k3 k4) h w',
-                    k1=PATCH_SIZE, k2=PATCH_SIZE, k3=WINDOW_SIZE, k4=WINDOW_SIZE,
+                    k1=PS, k2=PS, k3=WS, k4=WS,
                     h=blk_sz, w=blk_sz
                 )
 
                 img_center = einops.rearrange(
                     sub_img_uf,
                     'b (c k1 k2) h w -> b (c k1 k2) 1 h w',
-                    k1=PATCH_SIZE, k2=PATCH_SIZE,
+                    k1=PS, k2=PS,
                     h=sub_img_shape[-2], w=sub_img_shape[-1]
                 )
                 img_center = img_center[..., center_offset:center_offset + blk_sz, center_offset:center_offset + blk_sz]
@@ -202,7 +205,7 @@ def construct_pixel_bank():
 
                 _, sort_indices = torch.topk(
                     distance,
-                    k=NUM_NEIGHBORS,
+                    k=NN,
                     largest=False,
                     sorted=True,
                     dim=-3
@@ -211,7 +214,7 @@ def construct_pixel_bank():
                 patch_windows_reshape = einops.rearrange(
                     patch_windows,
                     'b (c k1 k2) (k3 k4) h w -> b c (k1 k2) (k3 k4) h w',
-                    k1=PATCH_SIZE, k2=PATCH_SIZE, k3=WINDOW_SIZE, k4=WINDOW_SIZE
+                    k1=PS, k2=PS, k3=WS, k4=WS
                 )
                 patch_center = patch_windows_reshape[:, :, patch_windows_reshape.shape[2] // 2, ...]
                 topk = torch.gather(patch_center, dim=-3,
