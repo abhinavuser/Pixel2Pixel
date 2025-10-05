@@ -67,9 +67,24 @@ def construct_pixel_bank():
     if args.limit is not None:
         image_files = image_files[:args.limit]
 
-    pad_sz = WINDOW_SIZE // 2 + PATCH_SIZE // 2
-    center_offset = WINDOW_SIZE // 2
-    blk_sz = 64  # Block size for processing
+    try:
+        dev_type = device.type
+    except Exception:
+        dev_type = str(device)
+
+    if dev_type == 'cpu':
+        WS = min(WINDOW_SIZE, 16)
+        PS = min(PATCH_SIZE, 3)
+        NN = min(NUM_NEIGHBORS, 8)
+        blk_sz = 32
+    else:
+        WS = WINDOW_SIZE
+        PS = PATCH_SIZE
+        NN = NUM_NEIGHBORS
+        blk_sz = 64  # Block size for processing
+
+    pad_sz = WS // 2 + PS // 2
+    center_offset = WS // 2
 
     for image_file in image_files:
         image_path = os.path.join(noisy_folder, image_file)
