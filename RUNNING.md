@@ -57,6 +57,3 @@ Notes about authentication:
 6) Troubleshooting tips
 - If you hit OOM on CPU: reduce `--ws`, `--ps`, `--nn`, `--limit` and/or resize images.
 - If PyTorch shows `torch.*+cpu` and `torch.cuda.is_available()` is False, you need a CUDA-compatible PyTorch install (follow https://pytorch.org/get-started/locally/).
-
-Contact
-- If you want me to push to the remote but your local environment cannot perform an authenticated push, you need to run `git push` locally (or give me a remote with push access). I attempted a push from this environment below — see terminal output.
