@@ -35,6 +35,7 @@ parser.add_argument('--loss', default='L2', type=str, help='Loss function type')
 parser.add_argument('--device', default='auto', type=str, help="Device to run on: 'auto'|'cpu'|'cuda:0' etc.")
 parser.add_argument('--max_epoch', default=3000, type=int, help='Maximum number of training epochs per image')
 parser.add_argument('--limit', default=None, type=int, help='Limit number of images to process (for quick tests)')
+parser.add_argument('--checkpoint_dir', default=None, type=str, help='Directory to save model checkpoints')
 args = parser.parse_args()
 
 torch.manual_seed(123)
@@ -282,6 +283,15 @@ def denoise_images():
             scheduler.step()
 
         PSNR, out_img = test(model, noisy_img, clean_img_tensor)
+        # save final model checkpoint if requested
+        if args.checkpoint_dir is not None:
+            os.makedirs(args.checkpoint_dir, exist_ok=True)
+            ckpt_path = os.path.join(args.checkpoint_dir, os.path.splitext(image_file)[0] + '.pth')
+            try:
+                torch.save(model.state_dict(), ckpt_path)
+                print(f"Saved checkpoint: {ckpt_path}")
+            except Exception as e:
+                print(f"Warning: failed to save checkpoint {ckpt_path}: {e}")
         out_img_pil = to_pil_image(out_img.squeeze(0))
         out_img_save_path = os.path.join(args.out_image, os.path.splitext(image_file)[0] + '.png')
         out_img_pil.save(out_img_save_path)
