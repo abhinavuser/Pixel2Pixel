@@ -75,9 +75,24 @@ def construct_pixel_bank():
         image_path = os.path.join(noisy_folder, image_file)
         start_time = time.time()
 
-        # Load the already noisy image
-        img = Image.open(image_path).convert('RGB')
-        img = transform(img).unsqueeze(0)  # Shape: [1, C, H, W]
+        # Load the already noisy image and optionally downscale to avoid CPU OOM
+        img_pil = Image.open(image_path).convert('RGB')
+        try:
+            dev_type = device.type
+        except Exception:
+            dev_type = str(device)
+        if dev_type == 'cpu':
+            max_side_allowed = 512
+        else:
+            max_side_allowed = 2048
+        w, h = img_pil.size
+        if max(w, h) > max_side_allowed:
+            scale = max_side_allowed / float(max(w, h))
+            new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+            img_pil = img_pil.resize(new_size, Image.BICUBIC)
+            print(f"Resized {image_file} to {new_size} for memory constraints (device={dev_type})")
+
+        img = transform(img_pil).unsqueeze(0)  # Shape: [1, C, H, W]
         img = img.to(device)  # No extra dimension is added
 
         # Pad the image (F.pad requires a 4D tensor)

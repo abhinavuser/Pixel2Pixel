@@ -110,9 +110,26 @@ def construct_pixel_bank():
         image_path = os.path.join(image_folder, image_file)
         start_time = time.time()
 
-        # Load image and add noise
-        img = Image.open(image_path).convert('RGB')
-        img = transform(img).unsqueeze(0)  # Shape: [1, C, H, W]
+        # Load image and optionally downscale (to avoid CPU OOM on large images)
+        img_pil = Image.open(image_path).convert('RGB')
+        # If running on CPU and image is large, resize to a safe maximum side
+        try:
+            dev_type = device.type
+        except Exception:
+            dev_type = str(device)
+        if dev_type == 'cpu':
+            max_side_allowed = 512
+        else:
+            max_side_allowed = 2048
+
+        w, h = img_pil.size
+        if max(w, h) > max_side_allowed:
+            scale = max_side_allowed / float(max(w, h))
+            new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+            img_pil = img_pil.resize(new_size, Image.BICUBIC)
+            print(f"Resized {image_file} to {new_size} for memory constraints (device={dev_type})")
+
+        img = transform(img_pil).unsqueeze(0)  # Shape: [1, C, H, W]
         img = add_noise(img, noise_level).squeeze(0)
         img = img.to(device)[None, ...]  # Shape: [1, C, H, W]
 
